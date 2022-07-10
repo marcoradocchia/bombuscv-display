@@ -11,8 +11,8 @@ use std::{
 };
 
 // const INTERFACE_NAME: &str = "wlan0";
-// const THERMAL_ZONE: &str = "/sys/class/thermal/thermal_zone0/temp";
-const INTERFACE_NAME: &str = "wlp3s0";
+// const THERMAL_ZONE: &str = "/sys/class/hwmon/hwmon3/temp1_input";
+const INTERFACE_NAME: &str = "wlan0";
 const THERMAL_ZONE: &str = "/sys/class/thermal/thermal_zone0/temp";
 
 /// Enum representing handled runtime errors.
