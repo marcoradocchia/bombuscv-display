@@ -10,12 +10,10 @@ use std::{
     thread,
 };
 
-// const INTERFACE_NAME: &str = "wlan0";
+const INTERFACE_NAME: &str = "wlp1s0";
 // const THERMAL_ZONE: &str = "/sys/class/thermal/thermal_zone0/temp";
-const INTERFACE_NAME: &str = "wlp3s0";
-const THERMAL_ZONE: &str = "/sys/class/thermal/thermal_zone0/temp";
+const THERMAL_ZONE: &str = "/sys/class/hwmon/hwmon5/temp1_input";
 
-/// Enum representing handled runtime errors.
 enum ErrorKind {
     /// Occurs when network interface is not found.
     InterfaceNotFound,
@@ -26,7 +24,7 @@ enum ErrorKind {
     /// Occurs when list of system processes could not be retrieved.
     ProcListErr,
     /// Occurs when fed invalid humidity & temperature data.
-    InvalidHumTemp,
+    InvalidHumTemp(&'static str),
     /// Occurs when invalid input was piped to the program.
     InvalidInput,
 }
@@ -39,8 +37,8 @@ impl Display for ErrorKind {
             Self::InterfaceNotFound => format!("`{INTERFACE_NAME}` network interface not found"),
             Self::InaccessibleFile(filename) => format!("impossible to access `{filename}` file"),
             Self::ProcListErr => "unable to retrieve process list".to_string(),
-            Self::InvalidHumTemp => {
-                "invalid input data format; please use `<hum>,<temp>` instead".to_string()
+            Self::InvalidHumTemp(data) => {
+                format!("`{data}` is not a valid data format; please use `<hum>,<temp>` instead")
             }
             Self::InvalidInput => "invalid input piped to the program".to_string(),
         }
@@ -52,34 +50,6 @@ impl Display for ErrorKind {
 struct Measure {
     humidity: f32,
     temperature: f32,
-}
-
-impl Measure {
-    // Construct `Measure`.
-    fn new(humidity: f32, temperature: f32) -> Self {
-        Self {
-            humidity,
-            temperature,
-        }
-    }
-
-    /// Construct `Measure` from stdin data.
-    fn from_str(data: &str) -> Result<Self, ErrorKind> {
-        let splits = data.split(',').collect::<Vec<&str>>();
-
-        if splits.len() == 2 {
-            let mut splits = splits.iter().map(|val| val.parse::<f32>().unwrap());
-            Ok(Measure::new(splits.next().unwrap(), splits.next().unwrap()))
-        } else {
-            Err(ErrorKind::InvalidHumTemp)
-        }
-    }
-}
-
-impl Display for Measure {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "H: {}%, T: {}°C", self.humidity, self.temperature)
-    }
 }
 
 /// Retrieve local IPv4 of network interface.
@@ -118,7 +88,13 @@ fn cpu_temp() -> Result<f32, ErrorKind> {
         / 1000.0)
 }
 
-/// Check for running process returnin bool whether the process is running or not.
+/// Retrieve environment humidity and temperature from stdin.
+fn hum_temp(data: &str) -> Result<(f32, f32), ErrorKind> {
+    let splits = data.split(',').collect::<Vec<&str>>();
+    // if splits
+}
+
+/// Check for running process (`pgrep`).
 fn pgrep(name: &str) -> Result<bool, ErrorKind> {
     let proc_list = match all_processes() {
         Ok(proc_list) => proc_list,
@@ -138,35 +114,33 @@ fn pgrep(name: &str) -> Result<bool, ErrorKind> {
 
 /// Run application and catch errors.
 fn run() -> Result<(), ErrorKind> {
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = mpsc::channel::<(f32, f32)>();
 
-    let measure_handle = thread::spawn(move || -> Result<(), ErrorKind> {
-        // Read data from stdin (used in this case to pipe from datalogger, program).
+    let hum_temp_thread_handle = thread::spawn(|| -> Result<(), ErrorKind> {
+        // Read data from stdin (used to pipe from datalogger, program).
         // https://github.com/marcoradocchia/datalogger
         for line in io::stdin().lock().lines() {
-            match line {
-                Ok(line) => {
-                    tx.send(Measure::from_str(&line)?)
-                        .expect("unable to send hum_temp data between threads");
-                }
+            let data = match line {
+                Ok(line) => line,
                 Err(_) => return Err(ErrorKind::InvalidInput),
             };
+            dbg!(line);
+            tx.send(hum_temp(&data)?)
+                .expect("unable to send hum_temp data between threads");
         }
 
         Ok(())
     });
 
-    for msg in rx {
-        println!(
-            "{}\nIP: {}\nCPU: {}°C\nBOMBUSCV: {}",
-            msg,
-            local_ipv4()?,
-            cpu_temp()?,
-            if pgrep("bombuscv")? { "running" } else { "--" },
-        );
-    }
+    println!(
+        "IP: {}\nCPU: {}°C\nBOMBUSCV: {}",
+        local_ipv4()?,
+        cpu_temp()?,
+        if pgrep("youterm")? { "running" } else { "--" }
+    );
 
-    measure_handle.join().unwrap()
+    hum_temp_thread_handle.join().unwrap();
+    Ok(())
 }
 
 fn main() {
