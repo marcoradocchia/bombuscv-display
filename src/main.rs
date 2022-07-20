@@ -1,15 +1,15 @@
 use clap::Parser;
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X9, MonoTextStyle},
+    mono_font::{ascii::FONT_6X10, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
     text::Text,
 };
 use interfaces::{Interface, Kind};
 use procfs::process::all_processes;
-use rppal::i2c;
-use sh1106::{prelude::*, Builder};
+use rppal::i2c::{self, I2c};
 use signal_hook::{consts::SIGINT, flag::register};
+use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use std::{
     fmt::{self, Display, Formatter},
     fs::File,
@@ -195,7 +195,7 @@ fn pgrep(name: &str) -> Result<bool, ErrorKind> {
 }
 
 struct I2cDisplay {
-    disp: GraphicsMode<I2cInterface<i2c::I2c>>,
+    disp: Ssd1306<I2CInterface<I2c>, DisplaySize128x64, BufferedGraphicsMode<DisplaySize128x64>>,
 }
 
 impl I2cDisplay {
@@ -203,8 +203,10 @@ impl I2cDisplay {
     fn new<'a>() -> Result<Self, ErrorKind<'a>> {
         // TODO: change here to let the user specify custom pins
         if let Ok(i2c) = i2c::I2c::new() {
+            let interface = I2CDisplayInterface::new(i2c);
             Ok(Self {
-                disp: Builder::new().connect_i2c(i2c).into(),
+                disp: Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+                    .into_buffered_graphics_mode(),
             })
         } else {
             Err(ErrorKind::I2cSetupErr)
@@ -223,10 +225,11 @@ impl I2cDisplay {
         }
 
         // Draw text to display.
-        if Text::new(
+        if Text::with_baseline(
             lines,
             Point::zero(),
-            MonoTextStyle::new(&FONT_6X9, BinaryColor::On),
+            MonoTextStyle::new(&FONT_6X10, BinaryColor::On),
+            embedded_graphics::text::Baseline::Top
         )
         .draw(&mut self.disp)
         .is_err()
