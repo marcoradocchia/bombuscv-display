@@ -145,7 +145,7 @@ pub fn cpu_temp(thermal_zone: &str) -> Result<f32, ErrorKind> {
 }
 
 /// Retrieves CPU overall percentage usage.
-pub fn cpu_usage<'a>() -> Result<u64, ErrorKind<'a>> {
+pub fn cpu_usage<'a>() -> Result<f64, ErrorKind<'a>> {
     // Read /proc/stat information and retrieve `cpu` row.
     let cpu = if let Ok(stat) = KernelStats::new() {
         stat.total
@@ -163,7 +163,7 @@ pub fn cpu_usage<'a>() -> Result<u64, ErrorKind<'a>> {
         + cpu.softirq.unwrap_or(0);
 
     // Calculate percentage subtracting idling time fraction from total time.
-    Ok(total_time - (cpu.idle / total_time) * 100)
+    Ok(1.0 - (cpu.idle / total_time) as f64 * 100.0)
 }
 
 /// Retrieves disk free space.
