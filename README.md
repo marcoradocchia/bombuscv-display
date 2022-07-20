@@ -6,10 +6,12 @@
   ![GitHub open issues](https://img.shields.io/github/issues-raw/marcoradocchia/bombuscv-display?color=%23d8a657&logo=github)
   ![GitHub open pull requests](https://img.shields.io/github/issues-pr-raw/marcoradocchia/bombuscv-display?color=%2389b482&logo=github)
   ![GitHub sponsors](https://img.shields.io/github/sponsors/marcoradocchia?color=%23d3869b&logo=github)
+  ![GitHub license](https://img.shields.io/github/license/marcoradocchia/bombuscv-display?color=%23e78a4e)
   <!-- ![Crates.io downloads](https://img.shields.io/crates/d/bombuscv-display?label=crates.io%20downloads&color=%23a9b665&logo=rust) -->
   <!-- ![Crates.io version](https://img.shields.io/crates/v/bombuscv-display?logo=rust&color=%23d8a657) -->
-  ![GitHub license](https://img.shields.io/github/license/marcoradocchia/bombuscv-display?color=%23e78a4e)
 </div>
+
+I2C (SSD1306) display integration for `bombuscv-rs`.
 
 ## Index
 
@@ -27,9 +29,9 @@
 This software is intended to **extend & enhance**
 [`bobmuscv-rs`](https://github.com/marcoradocchia/bombuscv-rs) functionality.
 
-`bombuscv-display` is built to display and so immediatly visualize[] `bombuscv-rs` status, system and
-humidity/temperature sensor (i.e. DHT22) information on a **SSD1306** oled
-display[^1] powered by *Raspberry Pi* GPIO.
+`bombuscv-display` is built to display and immediatly visualize `bombuscv-rs`
+status, system and humidity/temperature sensor (i.e. DHT22) information on a
+**SSD1306** oled display[^1] powered by *Raspberry Pi* GPIO.
 
 [^1]: 0.96", 128x64 pixels, I2C display
 
