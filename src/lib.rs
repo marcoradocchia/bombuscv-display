@@ -183,6 +183,9 @@ impl I2cDisplay {
 
     /// Refresh display screen.
     pub fn refresh_display<'a>(&mut self, lines: &str) -> Result<(), ErrorKind<'a>> {
+        // Clear the display buffer.
+        self.disp.clear();
+
         // Draw text to display and flush.
         if Text::with_baseline(
             lines,
