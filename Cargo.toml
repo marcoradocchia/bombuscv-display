@@ -6,15 +6,17 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# crates.io
 clap = { version = "3.2.13", features = ["derive"] }
 chrono = { version = "0.4.19" }
-interfaces = { version = "0.0.8" }
 procfs = { version = "0.13.2" }
 ssd1306 = { version = "0.7.0" }
 signal-hook = { version = "0.3.14" }
 embedded-graphics = { version = "0.7.1" }
 rppal = { version = "0.13.1", features = ["hal"] }
+# git
+interfaces = { git = "https://github.com/domenicquirl/interfaces-rs", branch = "dep-and-cleanup" }
 
 [profile.release]
-lto = true # link-time-optimization
+lto = true   # link-time-optimization
 strip = true # strip symbols from binary
