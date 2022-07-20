@@ -141,9 +141,26 @@ pub struct Cpu {
     thermal_zone: PathBuf,
     idle_time: u64,
     total_time: u64,
+    temp: f32,
+    usage: f64,
 }
 
 impl Cpu {
+    // Construct `Cpu` given thermal_zone path.
+    pub fn new(thermal_zone: &str) -> Result<Self, ErrorKind> {
+        // Retrieve current idle and total times.
+        let (idle_time, total_time) = Cpu::get_times()?;
+
+        Ok(Self {
+            thermal_zone: PathBuf::from(thermal_zone),
+            idle_time,
+            total_time,
+            temp: 0.0,
+            usage: 0.0,
+        })
+    }
+
+    /// Get time information from /proc/stat on Linux filesystem.
     fn get_times<'a>() -> Result<(u64, u64), ErrorKind<'a>> {
         // Read /proc/stat information and retrieve `cpu` row.
         let cpu = if let Ok(stat) = KernelStats::new() {
@@ -165,37 +182,28 @@ impl Cpu {
         ))
     }
 
-    // Construct `Cpu` given thermal_zone path.
-    pub fn new(thermal_zone: &str) -> Result<Self, ErrorKind> {
-        // Retrieve current idle and total times.
-        let (idle_time, total_time) = Cpu::get_times()?;
-
-        Ok(Self {
-            thermal_zone: PathBuf::from(thermal_zone),
-            idle_time,
-            total_time,
-        })
-    }
-
     /// Retrieve CPU package temperature in Celsius degrees.
-    pub fn temp(&mut self) -> Result<f32, ErrorKind<'_>> {
+    fn temp(&mut self) -> Result<(), ErrorKind<'_>> {
         let mut temp = String::new();
 
         if let Ok(mut file) = File::open(&self.thermal_zone) {
             file.read_to_string(&mut temp)
                 .expect("unable to read `{thermal_zone}` file");
-            return Ok(temp
+
+            self.temp = temp
                 .trim()
                 .parse::<f32>()
                 .expect("unable to parse `{thermal_zone}` content to f32")
-                / 1000.0);
+                / 1000.0;
+
+            return Ok(());
         }
 
         return Err(ErrorKind::InaccessibleFile(&self.thermal_zone));
     }
 
     /// Retrieves CPU overall percentage usage.
-    pub fn usage(&mut self) -> Result<f64, ErrorKind<'_>> {
+    fn usage(&mut self) -> Result<(), ErrorKind<'_>> {
         let (idle_time, total_time) = Cpu::get_times()?;
 
         // Total CPU usage ([0-100]%).
@@ -208,7 +216,23 @@ impl Cpu {
         self.idle_time = idle_time;
 
         // Calculate percentage subtracting idling time fraction from total time.
-        Ok(usage)
+        self.usage = usage;
+
+        Ok(())
+    }
+
+    /// Retrieve CPU information.
+    pub fn read_info(&mut self) -> Result<String, ErrorKind<'_>> {
+        self.usage().unwrap(); // NOTE: This error should be handled.
+        self.temp().unwrap(); // NOTE: This error should be handled.
+
+        Ok(self.to_string())
+    }
+}
+
+impl Display for Cpu {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.1}% {:.1}C", self.usage, self.temp)
     }
 }
 
@@ -297,7 +321,7 @@ mod tests {
 
         for _ in 0..10 {
             thread::sleep(Duration::from_secs(1));
-            println!("CPU: {:.1}", cpu.usage().unwrap());
+            println!("CPU: {:#?}", cpu.read_info().unwrap());
         }
     }
 }

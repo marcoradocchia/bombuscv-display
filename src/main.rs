@@ -24,8 +24,15 @@ fn run(args: &Args) -> Result<(), ErrorKind> {
         return Err(ErrorKind::SigIntHandlerErr);
     };
 
+    // Initialize CPU info.
+    let mut cpu = Cpu::new(&args.thermal)?;
+    // Initialize I2C display.
+    let mut i2c_display = I2cDisplay::new()?;
+
     // Sender/Receiver for measure values.
     let (tx_measure, rx_measure) = mpsc::channel();
+    // Sender/Receiver for cpu values.
+    let (tx_cpu, rx_cpu) = mpsc::channel();
 
     let measure_handle = thread::spawn(move || -> Result<(), ErrorKind> {
         // Read data from stdin (used in this case to pipe from datalogger, program).
@@ -43,32 +50,39 @@ fn run(args: &Args) -> Result<(), ErrorKind> {
         Ok(())
     });
 
-    // Initialize I2C display.
-    let mut i2c_display = I2cDisplay::new()?;
+    let cpu_handle = thread::spawn(move || -> Result<(), ErrorKind<'_>> {
+        // Retrieve CPU temperature and usage every 1 second and send it to main thread.
+        // Start grabber loop: loop guard is `received SIGINT`.
+        while !term.load(Ordering::Relaxed) {
+            tx_cpu
+                .send(cpu.read_info().unwrap())
+                .expect("unable to send cpua data between threads");
 
-    // Initialize CPU info.
-    let mut cpu = Cpu::new(&args.thermal)?;
+            // Sleep 1 second.
+            thread::sleep(Duration::from_secs(1));
+        }
+        Ok(())
+    });
 
     // Grab the first measure.
     let mut measure: Measure = rx_measure
         .recv()
         .expect("unable to receive measure from measure thread")?;
 
-    // Start grabber loop: loop guard is `received SIGINT`.
-    while !term.load(Ordering::Relaxed) {
-        // This sets approx display refresh rate.
-        if let Ok(new_measure) = rx_measure.recv_timeout(Duration::from_secs(1)) {
+    // This sets approx display refresh rate.
+    for cpu_read in rx_cpu {
+        // Don't wait for measure if it is not immediatly received.
+        if let Ok(new_measure) = rx_measure.recv_timeout(Duration::ZERO) {
             measure = new_measure?
         }
 
         // Refresh I2C display.
         i2c_display.refresh_display(&format!(
-            "{}\n{}\nIP: {}\nCPU: {:.1}% {:.1}C\nBOMBUSCV: {}",
+            "{}\n{}\nIP: {}\nCPU: {}\nBOMBUSCV: {}",
             Local::now().format("%Y-%m-%d %H:%M:%S"),
             measure,
             local_ipv4(&args.interface).unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
-            cpu.temp().unwrap(),  // NOTE: This error should be handled.
-            cpu.usage().unwrap(), // NOTE: This error should be handled.
+            cpu_read,
             if pgrep("bombuscv")? { "running" } else { "--" }
         ))?;
     }
@@ -76,6 +90,9 @@ fn run(args: &Args) -> Result<(), ErrorKind> {
     measure_handle
         .join()
         .expect("unable to join measure_handle thread")?;
+    cpu_handle
+        .join()
+        .expect("unable to join cpu_handle thread")?;
     Ok(())
 }
 
