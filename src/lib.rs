@@ -14,9 +14,11 @@ use std::{
     io::Read,
     net::IpAddr,
     ops::Index,
+    path::{Path, PathBuf},
 };
 
 /// Enum representing handled runtime errors.
+#[derive(Debug)]
 pub enum ErrorKind<'a> {
     /// Occurs when network interface is not found.
     InterfaceNotFound(&'a str),
@@ -25,7 +27,7 @@ pub enum ErrorKind<'a> {
     IPv4NotFound(&'a str),
 
     /// Occurs when file could not be read.
-    InaccessibleFile(&'a str),
+    InaccessibleFile(&'a Path),
 
     /// Occurs when list of system processes could not be retrieved.
     ProcListErr,
@@ -59,7 +61,7 @@ impl Display for ErrorKind<'_> {
             Self::InterfaceNotFound(interface) => {
                 write!(f, "`{interface}` network interface not found")
             }
-            Self::InaccessibleFile(filename) => write!(f, "impossible to access `{filename}` file"),
+            Self::InaccessibleFile(filename) => write!(f, "impossible to access {:?}", filename),
             Self::ProcListErr => write!(f, "unable to retrieve process list"),
             Self::InvalidHumTemp => {
                 write!(f, "invalid input format; please use `<hum>,<temp>` instead")
@@ -127,43 +129,87 @@ pub fn local_ipv4(interface: &str) -> Result<IpAddr, ErrorKind> {
     Err(ErrorKind::IPv4NotFound(interface))
 }
 
-/// Retrieve CPU package temperature in Celsius degrees.
-pub fn cpu_temp(thermal_zone: &str) -> Result<f32, ErrorKind> {
-    let mut temp = String::new();
-
-    if let Ok(mut file) = File::open(thermal_zone) {
-        file.read_to_string(&mut temp)
-            .expect("unable to read `{thermal_zone}` file");
-        return Ok(temp
-            .trim()
-            .parse::<f32>()
-            .expect("unable to parse `{thermal_zone}` content to f32")
-            / 1000.0);
-    }
-
-    return Err(ErrorKind::InaccessibleFile(thermal_zone));
+/// CPU info.
+///
+/// # Fields
+///
+/// - thermal_zone: filesystem path to CPU thermal info
+/// - idle_time: idle time from /proc/stat
+/// - total_time: total time from /proc/stat
+#[derive(Debug, Clone)]
+pub struct Cpu {
+    thermal_zone: PathBuf,
+    idle_time: u64,
+    total_time: u64,
 }
 
-/// Retrieves CPU overall percentage usage.
-pub fn cpu_usage<'a>() -> Result<f64, ErrorKind<'a>> {
-    // Read /proc/stat information and retrieve `cpu` row.
-    let cpu = if let Ok(stat) = KernelStats::new() {
-        stat.total
-    } else {
-        return Err(ErrorKind::KernelStatsErr);
-    };
+impl Cpu {
+    fn get_times<'a>() -> Result<(u64, u64), ErrorKind<'a>> {
+        // Read /proc/stat information and retrieve `cpu` row.
+        let cpu = if let Ok(stat) = KernelStats::new() {
+            stat.total
+        } else {
+            return Err(ErrorKind::KernelStatsErr);
+        };
 
-    // Calculate the total time.
-    let total_time = cpu.user
-        + cpu.nice
-        + cpu.system
-        + cpu.idle
-        + cpu.iowait.unwrap_or(0)
-        + cpu.irq.unwrap_or(0)
-        + cpu.softirq.unwrap_or(0);
+        // Calculate the total time.
+        Ok((
+            cpu.idle,
+            cpu.user
+                + cpu.nice
+                + cpu.system
+                + cpu.idle
+                + cpu.iowait.unwrap_or(0)
+                + cpu.irq.unwrap_or(0)
+                + cpu.softirq.unwrap_or(0),
+        ))
+    }
 
-    // Calculate percentage subtracting idling time fraction from total time.
-    Ok(1.0 - (cpu.idle / total_time) as f64 * 100.0)
+    // Construct `Cpu` given thermal_zone path.
+    pub fn new(thermal_zone: &str) -> Result<Self, ErrorKind> {
+        // Retrieve current idle and total times.
+        let (idle_time, total_time) = Cpu::get_times()?;
+
+        Ok(Self {
+            thermal_zone: PathBuf::from(thermal_zone),
+            idle_time,
+            total_time,
+        })
+    }
+
+    /// Retrieve CPU package temperature in Celsius degrees.
+    pub fn temp(&mut self) -> Result<f32, ErrorKind<'_>> {
+        let mut temp = String::new();
+
+        if let Ok(mut file) = File::open(&self.thermal_zone) {
+            file.read_to_string(&mut temp)
+                .expect("unable to read `{thermal_zone}` file");
+            return Ok(temp
+                .trim()
+                .parse::<f32>()
+                .expect("unable to parse `{thermal_zone}` content to f32")
+                / 1000.0);
+        }
+
+        return Err(ErrorKind::InaccessibleFile(&self.thermal_zone));
+    }
+
+    /// Retrieves CPU overall percentage usage.
+    pub fn usage(&mut self) -> Result<f64, ErrorKind<'_>> {
+        let (idle_time, total_time) = Cpu::get_times()?;
+
+        // Total CPU usage ([0-100]%).
+        let usage = (1.0
+            - (idle_time - self.idle_time) as f64 / (total_time - self.total_time) as f64)
+            * 100.0;
+
+        // Update values.
+        self.total_time = total_time;
+        self.idle_time = idle_time;
+
+        // Calculate percentage subtracting idling time fraction from total time.
+        Ok(usage)
+    }
 }
 
 /// Retrieves disk free space.
@@ -235,5 +281,23 @@ impl I2cDisplay {
         }
 
         Ok(())
+    }
+}
+
+/// Test module.
+#[cfg(test)]
+mod tests {
+    use super::Cpu;
+    use std::{thread, time::Duration};
+
+    /// Test cpu.usage().
+    #[test]
+    fn cpu_usage() {
+        let mut cpu = Cpu::new("/sys/class/thermal/thermal_zone0").unwrap();
+
+        for _ in 0..10 {
+            thread::sleep(Duration::from_secs(1));
+            println!("CPU: {:.1}", cpu.usage().unwrap());
+        }
     }
 }

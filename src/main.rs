@@ -1,7 +1,7 @@
 mod args;
 
 use args::{Args, Parser};
-use bombuscv_display::{cpu_temp, cpu_usage, local_ipv4, pgrep, ErrorKind, I2cDisplay, Measure};
+use bombuscv_display::{local_ipv4, pgrep, Cpu, ErrorKind, I2cDisplay, Measure};
 use chrono::Local;
 use signal_hook::{consts::SIGINT, flag::register};
 use std::{
@@ -43,8 +43,11 @@ fn run(args: &Args) -> Result<(), ErrorKind> {
         Ok(())
     });
 
-    // Initialize I2C  display.
+    // Initialize I2C display.
     let mut i2c_display = I2cDisplay::new()?;
+
+    // Initialize CPU info.
+    let mut cpu = Cpu::new(&args.thermal)?;
 
     // Grab the first measure.
     let mut measure: Measure = rx_measure
@@ -60,12 +63,12 @@ fn run(args: &Args) -> Result<(), ErrorKind> {
 
         // Refresh I2C display.
         i2c_display.refresh_display(&format!(
-            "{}\n{}\nIP: {}\nCPU: {}% {:.1}C\nBOMBUSCV: {}",
+            "{}\n{}\nIP: {}\nCPU: {:.1}% {:.1}C\nBOMBUSCV: {}",
             Local::now().format("%Y-%m-%d %H:%M:%S"),
             measure,
             local_ipv4(&args.interface).unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
-            cpu_usage()?,
-            cpu_temp(&args.thermal)?,
+            cpu.temp().unwrap(),  // NOTE: This error should be handled.
+            cpu.usage().unwrap(), // NOTE: This error should be handled.
             if pgrep("bombuscv")? { "running" } else { "--" }
         ))?;
     }
