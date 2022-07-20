@@ -5,7 +5,7 @@ use embedded_graphics::{
     text::Text,
 };
 use interfaces::{Interface, Kind};
-use procfs::process::all_processes;
+use procfs::{process::all_processes, KernelStats};
 use rppal::i2c::{self, I2c};
 use ssd1306::{mode::BufferedGraphicsMode, prelude::*, I2CDisplayInterface, Ssd1306};
 use std::{
@@ -44,6 +44,9 @@ pub enum ErrorKind<'a> {
 
     /// Occurs when unable to write to I2C.
     I2cWriteErr,
+
+    /// Occurs when unable to retrieve KernelStats information.
+    KernelStatsErr,
 }
 
 /// Implementing Display trait for ErrorKind enum.
@@ -65,6 +68,10 @@ impl Display for ErrorKind<'_> {
             Self::SigIntHandlerErr => write!(f, "unable to register SIGINT event handler"),
             Self::I2cSetupErr => write!(f, "unable to setup I2C bus"),
             Self::I2cWriteErr => write!(f, "unable to write to I2C display"),
+            Self::KernelStatsErr => write!(
+                f,
+                "unable to retrieve kernel stat info (unable to access /proc/stat)"
+            ),
         }
     }
 }
@@ -99,7 +106,7 @@ impl<'a> Measure {
 
 impl Display for Measure {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "H: {}%, T: {}C", self.humidity, self.temperature)
+        write!(f, "H: {}% T: {}C", self.humidity, self.temperature)
     }
 }
 
@@ -135,6 +142,33 @@ pub fn cpu_temp(thermal_zone: &str) -> Result<f32, ErrorKind> {
     }
 
     return Err(ErrorKind::InaccessibleFile(thermal_zone));
+}
+
+/// Retrieves CPU overall percentage usage.
+pub fn cpu_usage<'a>() -> Result<u64, ErrorKind<'a>> {
+    // Read /proc/stat information and retrieve `cpu` row.
+    let cpu = if let Ok(stat) = KernelStats::new() {
+        stat.total
+    } else {
+        return Err(ErrorKind::KernelStatsErr);
+    };
+
+    // Calculate the total time.
+    let total_time = cpu.user
+        + cpu.nice
+        + cpu.system
+        + cpu.idle
+        + cpu.iowait.unwrap_or(0)
+        + cpu.irq.unwrap_or(0)
+        + cpu.softirq.unwrap_or(0);
+
+    // Calculate percentage subtracting idling time fraction from total time.
+    Ok(total_time - (cpu.idle / total_time) * 100)
+}
+
+/// Retrieves disk free space.
+pub fn disk_free<'a>() -> Result<(), ErrorKind<'a>> {
+    unimplemented!();
 }
 
 /// Check for running process returnin bool whether the process is running or not.

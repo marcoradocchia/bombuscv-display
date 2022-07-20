@@ -11,7 +11,8 @@
   <!-- ![Crates.io version](https://img.shields.io/crates/v/bombuscv-display?logo=rust&color=%23d8a657) -->
 </div>
 
-I2C (SSD1306) display integration for `bombuscv-rs`.
+I2C (SSD1306) display integration for
+[`bobmuscv-rs`](https://github.com/marcoradocchia/bombuscv-rs).
 
 ## Index
 
@@ -31,7 +32,7 @@ This software is intended to **extend & enhance**
 
 `bombuscv-display` is built to display and immediatly visualize `bombuscv-rs`
 status, system and humidity/temperature sensor (i.e. DHT22) information on a
-**SSD1306** oled display[^1] powered by *Raspberry Pi* GPIO.
+**SSD1306** oled display[^1] powered by *Raspberry Pi GPIO*.
 
 [^1]: 0.96", 128x64 pixels, I2C display
 
