@@ -58,8 +58,8 @@ fn run(args: &Args) -> Result<(), ErrorKind> {
                 .send(cpu.read_info().unwrap())
                 .expect("unable to send cpua data between threads");
 
-            // Sleep 1 second.
-            thread::sleep(Duration::from_secs(1));
+            // Sleep 2 second.
+            thread::sleep(Duration::from_secs(2));
         }
         Ok(())
     });
