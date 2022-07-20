@@ -15,6 +15,7 @@ use std::{
     net::IpAddr,
     ops::Index,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 /// Enum representing handled runtime errors.
@@ -114,8 +115,8 @@ impl Display for Measure {
 
 /// Retrieve local IPv4 of network interface.
 pub fn local_ipv4(interface: &str) -> Result<IpAddr, ErrorKind> {
-    if let Some(interface) =
-        Interface::get_by_name(interface).expect("failed to get {interface} info")
+    if let Some(interface) = Interface::get_by_name(interface)
+        .unwrap_or_else(|_| panic!("failed to get {interface} info"))
     {
         for addr in &interface.addresses {
             if addr.kind == Kind::Ipv4 {
@@ -188,13 +189,11 @@ impl Cpu {
 
         if let Ok(mut file) = File::open(&self.thermal_zone) {
             file.read_to_string(&mut temp)
-                .expect("unable to read `{thermal_zone}` file");
+                .unwrap_or_else(|_| panic!("unable to read {:?} file", self.thermal_zone));
 
-            self.temp = temp
-                .trim()
-                .parse::<f32>()
-                .expect("unable to parse `{thermal_zone}` content to f32")
-                / 1000.0;
+            self.temp = temp.trim().parse::<f32>().unwrap_or_else(|_| {
+                panic!("unable to parse {:?} content to f32", self.thermal_zone)
+            }) / 1000.0;
 
             return Ok(());
         }
@@ -237,8 +236,17 @@ impl Display for Cpu {
 }
 
 /// Retrieves disk free space.
-pub fn disk_free<'a>() -> Result<(), ErrorKind<'a>> {
-    unimplemented!();
+pub fn disk_free() -> String {
+    // Spawn command and collect output.
+    let output = Command::new("df")
+        .args(["-h", "--output=avail", "/"])
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stdout: Vec<&str> = stdout.split('\n').collect();
+
+    // Trim leading white spaces.
+    stdout[1].trim_start().to_string()
 }
 
 /// Check for running process returnin bool whether the process is running or not.
@@ -312,7 +320,7 @@ impl I2cDisplay {
 #[cfg(test)]
 mod tests {
     use super::Cpu;
-    use std::{thread, time::Duration};
+    use std::{process::Command, thread, time::Duration};
 
     /// Test cpu.usage().
     #[test]
@@ -323,5 +331,22 @@ mod tests {
             thread::sleep(Duration::from_secs(1));
             println!("CPU: {:#?}", cpu.read_info().unwrap());
         }
+    }
+
+    /// Root partition ("/") free space.
+    #[test]
+    fn disk_free() {
+        // Spawn command and collect output.
+        let output = Command::new("df")
+            .args(["-h", "--output=avail", "/"])
+            .output()
+            .unwrap();
+        // Convert Vec<u8> output to String.
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        // Split stdout lines and collect into Vec<&str>.
+        let stdout: Vec<&str> = stdout.split("\n").collect();
+
+        // Trim leading white spaces.
+        println!("{}", stdout[1].trim_start());
     }
 }

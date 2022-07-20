@@ -1,7 +1,7 @@
 mod args;
 
 use args::{Args, Parser};
-use bombuscv_display::{local_ipv4, pgrep, Cpu, ErrorKind, I2cDisplay, Measure};
+use bombuscv_display::{local_ipv4, pgrep, Cpu, ErrorKind, I2cDisplay, Measure, disk_free};
 use chrono::Local;
 use signal_hook::{consts::SIGINT, flag::register};
 use std::{
@@ -78,11 +78,12 @@ fn run(args: &Args) -> Result<(), ErrorKind> {
 
         // Refresh I2C display.
         i2c_display.refresh_display(&format!(
-            "{}\n{}\nIP: {}\nCPU: {}\nBOMBUSCV: {}",
+            "{}\n{}\nIP: {}\nCPU: {}\nDISK: {}\nBOMBUSCV: {}",
             Local::now().format("%Y-%m-%d %H:%M:%S"),
             measure,
             local_ipv4(&args.interface).unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
             cpu_read,
+            disk_free(),
             if pgrep("bombuscv")? { "running" } else { "--" }
         ))?;
     }
