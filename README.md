@@ -1,5 +1,5 @@
 <div align="center">
-  <h1 align="center">BombusCV</h1>
+  <h1 align="center">BombusCV Display</h1>
 
   ![GitHub releases](https://img.shields.io/github/downloads/marcoradocchia/bombuscv-display/total?color=%23a9b665&logo=github)
   ![GitHub source size](https://img.shields.io/github/languages/code-size/marcoradocchia/bombuscv-display?color=ea6962&logo=github)
