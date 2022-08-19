@@ -1,9 +1,12 @@
+mod error;
+
 use embedded_graphics::{
     mono_font::{ascii::FONT_6X9, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
     text::Text,
 };
+pub use error::ErrorKind;
 use interfaces::{Interface, Kind};
 use procfs::{process::all_processes, KernelStats};
 use rppal::i2c::{self, I2c};
@@ -14,79 +17,64 @@ use std::{
     io::Read,
     net::IpAddr,
     ops::Index,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Command,
 };
 
-/// Enum representing handled runtime errors.
+/// Pipeline standard input.
 #[derive(Debug)]
-pub enum ErrorKind<'a> {
-    /// Occurs when network interface is not found.
-    InterfaceNotFound(&'a str),
-
-    /// Occurs when network interface was not assigned an IPv4.
-    IPv4NotFound(&'a str),
-
-    /// Occurs when file could not be read.
-    InaccessibleFile(&'a Path),
-
-    /// Occurs when list of system processes could not be retrieved.
-    ProcListErr,
-
-    /// Occurs when fed invalid humidity & temperature data.
-    InvalidHumTemp,
-
-    /// Occurs when invalid input was piped to the program.
-    InvalidInput,
-
-    /// Occurs when unable to register SIGINT event handler.
-    SigIntHandlerErr,
-
-    /// Occurs when unable to setup I2C bus.
-    I2cSetupErr,
-
-    /// Occurs when unable to write to I2C.
-    I2cWriteErr,
-
-    /// Occurs when unable to retrieve KernelStats information.
-    KernelStatsErr,
+pub struct Input {
+    /// Humidity and temperature measure.
+    pub measure: Measure,
+    /// CSV logging status:
+    /// true -> logging to file
+    /// false -> not logging to file
+    pub csv: bool,
 }
 
-/// Implementing Display trait for ErrorKind enum.
-impl Display for ErrorKind<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::IPv4NotFound(interface) => {
-                write!(f, "no IPv4 found for `{interface}` network interface")
-            }
-            Self::InterfaceNotFound(interface) => {
-                write!(f, "`{interface}` network interface not found")
-            }
-            Self::InaccessibleFile(filename) => write!(f, "impossible to access {:?}", filename),
-            Self::ProcListErr => write!(f, "unable to retrieve process list"),
-            Self::InvalidHumTemp => {
-                write!(f, "invalid input format; please use `<hum>,<temp>` instead")
-            }
-            Self::InvalidInput => write!(f, "invalid input piped to the program"),
-            Self::SigIntHandlerErr => write!(f, "unable to register SIGINT event handler"),
-            Self::I2cSetupErr => write!(f, "unable to setup I2C bus"),
-            Self::I2cWriteErr => write!(f, "unable to write to I2C display"),
-            Self::KernelStatsErr => write!(
-                f,
-                "unable to retrieve kernel stat info (unable to access /proc/stat)"
-            ),
+impl Input {
+    /// Construct `Input`.
+    pub fn new(measure: Measure, csv: bool) -> Self {
+        Self { measure, csv }
+    }
+
+    /// Construct `Input` from CSV string <hum,temp,csv>.
+    pub fn from_csv(data: &str) -> Result<Self, ErrorKind> {
+        // IMPORTANT TODO: maybe a deserializer would improve the code.
+        let splits: Vec<&str> = data.split(',').collect();
+        if !splits.len() == 3 {
+            return Err(ErrorKind::InvalidInput);
         }
+
+        // Vector lenght checked, so indexing won't couse panics.
+        let csv = splits
+            .index(2)
+            .parse()
+            .map_err(|_| ErrorKind::ParseErr(splits.index(2).to_string()))?;
+
+        let parse_f32 = |value: &str| -> Result<f32, ErrorKind> {
+            value
+                .parse::<f32>()
+                .map_err(|_| ErrorKind::ParseErr(value.to_string()))
+        };
+
+        Ok(Self {
+            measure: Measure::new(parse_f32(*splits.index(0))?, parse_f32(*splits.index(1))?),
+            csv,
+        })
     }
 }
 
 /// Humidity and Temperature measure.
 #[derive(Debug)]
 pub struct Measure {
+    /// Humidity value.
     humidity: f32,
+    /// Temperature value.
     temperature: f32,
 }
 
-impl<'a> Measure {
+impl Measure {
     // Construct `Measure`.
     pub fn new(humidity: f32, temperature: f32) -> Self {
         Self {
@@ -95,8 +83,16 @@ impl<'a> Measure {
         }
     }
 
-    /// Construct `Measure` from csv string <hum,temp>.
-    pub fn from_csv(data: &str) -> Result<Self, ErrorKind<'a>> {
+    /// Construct `Measure` from array of f32 values [<hum>, <temp>].
+    pub fn from_array(data: [f32; 2]) -> Self {
+        Self {
+            humidity: data[0],
+            temperature: data[1],
+        }
+    }
+
+    /// Construct `Measure` from CSV string <hum,temp>.
+    pub fn from_csv(data: &str) -> Result<Self, ErrorKind> {
         let splits: Vec<f32> = data.split(',').map(|val| val.parse().unwrap()).collect();
 
         if splits.len() == 2 {
@@ -116,18 +112,21 @@ impl Display for Measure {
 /// Retrieve local IPv4 of network interface.
 pub fn local_ipv4(interface: &str) -> Result<IpAddr, ErrorKind> {
     if let Some(interface) = Interface::get_by_name(interface)
-        .unwrap_or_else(|_| panic!("failed to get {interface} info"))
+        .map_err(|_| ErrorKind::InterfaceInfoErr(interface.to_string()))?
     {
         for addr in &interface.addresses {
             if addr.kind == Kind::Ipv4 {
-                return Ok(addr.addr.unwrap().ip());
+                match addr.addr {
+                    Some(socket_addr) => return Ok(socket_addr.ip()),
+                    None => continue,
+                }
             }
         }
     } else {
-        return Err(ErrorKind::InterfaceNotFound(interface));
+        return Err(ErrorKind::InterfaceNotFound(interface.to_string()));
     }
 
-    Err(ErrorKind::IPv4NotFound(interface))
+    Err(ErrorKind::IPv4NotFound(interface.to_string()))
 }
 
 /// CPU info.
@@ -162,7 +161,7 @@ impl Cpu {
     }
 
     /// Get time information from /proc/stat on Linux filesystem.
-    fn get_times<'a>() -> Result<(u64, u64), ErrorKind<'a>> {
+    fn get_times() -> Result<(u64, u64), ErrorKind> {
         // Read /proc/stat information and retrieve `cpu` row.
         let cpu = if let Ok(stat) = KernelStats::new() {
             stat.total
@@ -184,25 +183,27 @@ impl Cpu {
     }
 
     /// Retrieve CPU package temperature in Celsius degrees.
-    fn temp(&mut self) -> Result<(), ErrorKind<'_>> {
+    fn temp(&mut self) -> Result<(), ErrorKind> {
         let mut temp = String::new();
 
         if let Ok(mut file) = File::open(&self.thermal_zone) {
             file.read_to_string(&mut temp)
-                .unwrap_or_else(|_| panic!("unable to read {:?} file", self.thermal_zone));
+                .map_err(|_| ErrorKind::InvalidUtf8(Some(self.thermal_zone.clone())))?;
 
-            self.temp = temp.trim().parse::<f32>().unwrap_or_else(|_| {
-                panic!("unable to parse {:?} content to f32", self.thermal_zone)
-            }) / 1000.0;
+            self.temp = temp
+                .trim()
+                .parse::<f32>()
+                .map_err(|_| ErrorKind::ParseErr(temp))?
+                / 1000.0;
 
             return Ok(());
         }
 
-        return Err(ErrorKind::InaccessibleFile(&self.thermal_zone));
+        Err(ErrorKind::InaccessibleFile(self.thermal_zone.clone()))
     }
 
     /// Retrieves CPU overall percentage usage.
-    fn usage(&mut self) -> Result<(), ErrorKind<'_>> {
+    fn usage(&mut self) -> Result<(), ErrorKind> {
         let (idle_time, total_time) = Cpu::get_times()?;
 
         // Total CPU usage ([0-100]%).
@@ -221,9 +222,9 @@ impl Cpu {
     }
 
     /// Retrieve CPU information.
-    pub fn read_info(&mut self) -> Result<String, ErrorKind<'_>> {
-        self.usage().unwrap(); // NOTE: This error should be handled.
-        self.temp().unwrap(); // NOTE: This error should be handled.
+    pub fn read_info(&mut self) -> Result<String, ErrorKind> {
+        self.usage()?;
+        self.temp()?;
 
         Ok(self.to_string())
     }
@@ -236,17 +237,17 @@ impl Display for Cpu {
 }
 
 /// Retrieves disk free space.
-pub fn disk_free() -> String {
+pub fn disk_free() -> Result<String, ErrorKind> {
     // Spawn command and collect output.
     let output = Command::new("df")
         .args(["-h", "--output=avail", "/"])
         .output()
         .unwrap();
-    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stdout = String::from_utf8(output.stdout).map_err(|_| ErrorKind::InvalidUtf8(None))?;
     let stdout: Vec<&str> = stdout.split('\n').collect();
 
     // Trim leading white spaces.
-    stdout[1].trim_start().to_string()
+    Ok(stdout[1].trim_start().to_string())
 }
 
 /// Check for running process returnin bool whether the process is running or not.
@@ -272,7 +273,7 @@ pub struct I2cDisplay {
 
 impl I2cDisplay {
     /// Initialize & setup SH1106 I2C display.
-    pub fn new<'a>() -> Result<Self, ErrorKind<'a>> {
+    pub fn new() -> Result<Self, ErrorKind> {
         // TODO: change here to let the user specify custom pins
         if let Ok(i2c) = i2c::I2c::new() {
             let mut disp = Ssd1306::new(
@@ -294,7 +295,7 @@ impl I2cDisplay {
     }
 
     /// Refresh display screen.
-    pub fn refresh_display<'a>(&mut self, lines: &str) -> Result<(), ErrorKind<'a>> {
+    pub fn refresh_display(&mut self, lines: &str) -> Result<(), ErrorKind> {
         // Clear the display buffer.
         self.disp.clear();
 
