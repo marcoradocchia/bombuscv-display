@@ -69,7 +69,7 @@ impl Display for Screen {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}\n{}\nIP: {}\nCPU: {}\nMEM: {}% DISK: {}\nDATALOGGER: {}\nBOMBUSCV: {}",
+            "{}\n{}\nIP: {}\nCPU: {}\nMEM: {:.1}% DISK: {}\nDATALOGGER: {}\nBOMBUSCV: {}",
             Local::now().format("%Y-%m-%d %H:%M:%S"),
             self.measure,
             self.interface.local_ipv4().unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED)),
@@ -107,7 +107,7 @@ fn run(args: Args) -> Result<()> {
         let mut cpu = Cpu::new(&args.thermal)?;
         loop {
             tx_cpu.send(cpu.info()?)?;
-            thread::sleep(Duration::from_millis(args.interval));
+            thread::sleep(Duration::from_millis(args.delay));
         }
     });
 

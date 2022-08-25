@@ -29,7 +29,7 @@ impl Default for CpuInfo {
 
 impl Display for CpuInfo {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}% {}C", self.usage, self.temp)
+        write!(f, "{:.1}% {:.1}C", self.usage, self.temp)
     }
 }
 

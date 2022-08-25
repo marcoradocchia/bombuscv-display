@@ -25,7 +25,7 @@ pub struct Args {
     /// System readings (CPU, Memory) interval in ms.
     // TODO: needs to be >= 1.
     #[clap(short, long, value_parser, default_value_t = 2)]
-    pub interval: u64,
+    pub delay: u64,
 
     // TODO: add options to let the user choose I2C pins on RaspberryPi 4 (older RaspberryPis don't
     // support it).

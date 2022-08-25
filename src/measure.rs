@@ -24,6 +24,7 @@ impl Measure {
 
     /// Construct `Measure` from CSV string <hum,temp>.
     pub fn from_csv(data: &str) -> Result<Self> {
+        // TODO: panics on invalid input format
         let splits: Vec<f32> = data.split(',').map(|val| val.parse().unwrap()).collect();
 
         // Invalid input from datalogger (not <hum,temp> format).
