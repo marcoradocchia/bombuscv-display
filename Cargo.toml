@@ -8,12 +8,15 @@ edition = "2021"
 [dependencies]
 # crates.io
 clap = { version = "3.2.13", features = ["derive"] }
-chrono = { version = "0.4.19" }
-procfs = { version = "0.13.2" }
-ssd1306 = { version = "0.7.0" }
-signal-hook = { version = "0.3.14" }
-embedded-graphics = { version = "0.7.1" }
 rppal = { version = "0.13.1", features = ["hal"] }
+anyhow = "1.0.62"
+thiserror = "1.0.32"
+chrono = "0.4.19"
+procfs = "0.14.0"
+ssd1306 = "0.7.0"
+signal-hook = "0.3.14"
+embedded-graphics = "0.7.1"
+
 # git
 interfaces = { git = "https://github.com/domenicquirl/interfaces-rs", branch = "dep-and-cleanup" }
 
