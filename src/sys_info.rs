@@ -1,6 +1,6 @@
 pub use procfs::Meminfo;
 
-use anyhow::Result;
+use crate::{ErrorKind, Result};
 use interfaces::{Interface, Kind};
 use procfs::{process::all_processes, KernelStats};
 use std::{
@@ -65,7 +65,7 @@ impl Cpu {
     /// Return time information from `/proc/stat` on Linux filesystem as `(<cpu_idle>, <cpu_total>)`.
     fn get_times() -> Result<(u64, u64)> {
         // Read /proc/stat information and retrieve `cpu` row.
-        let cpu = KernelStats::new()?.total;
+        let cpu = KernelStats::new().map_err(ErrorKind::ProcFsErr)?.total;
 
         // Calculate the total time.
         Ok((
@@ -84,10 +84,13 @@ impl Cpu {
     pub fn temp(&mut self) -> Result<f32> {
         let mut temp = String::new();
 
-        let mut file = File::open(&self.thermal_zone)?;
-        file.read_to_string(&mut temp)?;
+        let mut file = File::open(&self.thermal_zone)
+            .map_err(|err| ErrorKind::FileOpenErr(self.thermal_zone.to_owned(), err))?;
+        file.read_to_string(&mut temp)
+            .map_err(|err| ErrorKind::FileReadErr(self.thermal_zone.to_owned(), err))?;
 
-        Ok(temp.trim().parse::<f32>()? / 1000.0)
+        // Safe to unwrap here, guaranteed to have correct format.
+        Ok(temp.trim().parse::<f32>().unwrap() / 1000.0)
     }
 
     /// Return `Cpu` overall percentage usage.
@@ -168,12 +171,14 @@ impl InterfaceIPv4 for Interface {
 // TODO: remove dependency to other shell commands.
 /// Return free disk space in *human readable format*.
 pub fn disk_free() -> Result<String> {
-    // Spawn command and collect output.
+    // Spawn `df` command with human readable parameter `-h` on `/` and collect output.
     let output = Command::new("df")
         .args(["-h", "--output=avail", "/"])
-        .output()?;
+        .output()
+        .map_err(|_| "unable to execute `df` command")?;
 
-    Ok(String::from_utf8(output.stdout)?
+    Ok(String::from_utf8(output.stdout)
+        .unwrap() // Safe to unwrap, command output is guaranteed to be UTF-8.
         .split('\n')
         .collect::<Vec<&str>>()[1]
         .trim_start()
@@ -182,8 +187,8 @@ pub fn disk_free() -> Result<String> {
 
 /// Check for running process returning true if the process is running, false if not.
 pub fn pgrep(name: &str) -> Result<bool> {
-    for proc in all_processes()? {
-        if let Ok(exe_path) = proc?.exe() {
+    for proc in all_processes().map_err(ErrorKind::ProcFsErr)? {
+        if let Ok(exe_path) = proc.map_err(ErrorKind::ProcFsErr)?.exe() {
             // Filename guaranteed, safe to unwrap.
             if exe_path.file_stem().unwrap() == name {
                 return Ok(true);

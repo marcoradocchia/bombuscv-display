@@ -1,8 +1,5 @@
-use anyhow::{anyhow, Result};
-use std::{
-    fmt::{self, Display, Formatter},
-    ops::Index,
-};
+use crate::{ErrorKind, Result};
+use std::fmt::{self, Display, Formatter};
 
 /// Humidity and Temperature measure.
 #[derive(Debug)]
@@ -24,17 +21,18 @@ impl Measure {
 
     /// Construct `Measure` from CSV string <hum,temp>.
     pub fn from_csv(data: &str) -> Result<Self> {
-        // TODO: panics on invalid input format
-        let splits: Vec<f32> = data.split(',').map(|val| val.parse().unwrap()).collect();
+        let splits: Vec<&str> = data.split(',').collect();
 
-        // Invalid input from datalogger (not <hum,temp> format).
         if !splits.len() == 2 {
-            return Err(anyhow!(
-                "invalid input format; please use `<hum>,<temp>` instead"
-            ));
+            return Err(ErrorKind::InvalidInputFormat);
         }
 
-        Ok(Measure::new(*splits.index(0), *splits.index(1)))
+        let parse_f32 = |val: &str| -> Result<f32> {
+            val.parse::<f32>()
+                .map_err(|_| ErrorKind::InvalidInputFormat)
+        };
+
+        Ok(Measure::new(parse_f32(splits[0])?, parse_f32(splits[1])?))
     }
 }
 
